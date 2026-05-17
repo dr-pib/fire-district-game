@@ -158,13 +158,15 @@ header {
   background: #cc2200;
   color: white;
   border: none;
-  padding: 12px;
-  border-radius: 8px;
-  font-size: 0.95rem;
+  padding: 16px;
+  border-radius: 10px;
+  font-size: 1rem;
   font-weight: 700;
   cursor: pointer;
   transition: background 0.15s;
   margin-top: auto;
+  min-height: 52px;
+  width: 100%;
 }
 #next-btn:hover { background: #b91c1c; }
 
@@ -211,6 +213,12 @@ header {
 
 @media (max-width: 640px) {
   #game { flex-direction: column; }
-  #quiz-panel { width: 100%; border-left: none; border-top: 1px solid #374151; }
-  #map-container { height: 50vh; }
+  #quiz-panel {
+    width: 100%;
+    border-left: none;
+    border-top: 1px solid #374151;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+  #map-container { height: 45vh; flex-shrink: 0; }
+  #next-btn { margin-top: 8px; }
 }
