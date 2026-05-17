@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>District Roads (Rd type) — Capps-Batavia</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #222; }
+
+    header {
+      background: #1e3a5f;
+      color: white;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    header h1 { font-size: 1.1rem; font-weight: 600; }
+    header small { opacity: 0.7; font-size: 0.8rem; }
+
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    button {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    #export-btn { background: #f97316; color: white; }
+    #export-btn:disabled { background: #aaa; cursor: default; }
+    #select-all-btn { background: #e2e8f0; color: #333; }
+    #clear-btn { background: #e2e8f0; color: #333; }
+
+    #status { padding: 32px; text-align: center; color: #666; }
+
+    #list {
+      max-width: 640px;
+      margin: 24px auto;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+
+    .road-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 18px;
+      border-bottom: 1px solid #f0f0f0;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .road-row:last-child { border-bottom: none; }
+    .road-row:hover { background: #f9fafb; }
+    .road-row input[type="checkbox"] {
+      width: 17px;
+      height: 17px;
+      accent-color: #f97316;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .road-row label {
+      font-size: 0.95rem;
+      cursor: pointer;
+      flex: 1;
+    }
+
+    #checked-count { font-size: 0.85rem; opacity: 0.8; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Capps-Batavia Fire District — Roads (pstr_type = 'Rd')</h1>
+    <small id="checked-count">Loading…</small>
+  </div>
+  <div class="toolbar">
+    <button id="select-all-btn" disabled>Select all</button>
+    <button id="clear-btn" disabled>Clear</button>
+    <button id="export-btn" disabled>Export checked</button>
+  </div>
+</header>
+
+<div id="status">Loading road list from Arkansas GIS…</div>
+<div id="list"></div>
+
+<script>
+  const listEl = document.getElementById('list');
+  const statusEl = document.getElementById('status');
+  const countEl = document.getElementById('checked-count');
+  const exportBtn = document.getElementById('export-btn');
+  const selectAllBtn = document.getElementById('select-all-btn');
+  const clearBtn = document.getElementById('clear-btn');
+
+  function updateCount() {
+    const total = document.querySelectorAll('.road-checkbox').length;
+    const checked = document.querySelectorAll('.road-checkbox:checked').length;
+    countEl.textContent = `${checked} of ${total} selected`;
+    exportBtn.disabled = checked === 0;
+  }
+
+  fetch('/api/rd-roads')
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) throw new Error(data.error);
+      const names = data.names;
+
+      statusEl.style.display = 'none';
+      countEl.textContent = `0 of ${names.length} selected`;
+      selectAllBtn.disabled = false;
+      clearBtn.disabled = false;
+      exportBtn.disabled = true;
+
+      for (const name of names) {
+        const id = `road-${CSS.escape(name)}`;
+        const row = document.createElement('div');
+        row.className = 'road-row';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'road-checkbox';
+        cb.id = id;
+        cb.value = name;
+        cb.addEventListener('change', updateCount);
+
+        const label = document.createElement('label');
+        label.htmlFor = id;
+        label.textContent = name;
+
+        row.appendChild(cb);
+        row.appendChild(label);
+        row.addEventListener('click', e => {
+          if (e.target !== cb) cb.checked = !cb.checked;
+          updateCount();
+        });
+
+        listEl.appendChild(row);
+      }
+    })
+    .catch(err => {
+      statusEl.textContent = `Error: ${err.message}`;
+    });
+
+  selectAllBtn.addEventListener('click', () => {
+    document.querySelectorAll('.road-checkbox').forEach(cb => cb.checked = true);
+    updateCount();
+  });
+
+  clearBtn.addEventListener('click', () => {
+    document.querySelectorAll('.road-checkbox').forEach(cb => cb.checked = false);
+    updateCount();
+  });
+
+  exportBtn.addEventListener('click', () => {
+    const checked = [...document.querySelectorAll('.road-checkbox:checked')]
+      .map(cb => cb.value);
+    const blob = new Blob([checked.join('\n')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'primary-county-roads.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+</script>
+
+</body>
+</html>

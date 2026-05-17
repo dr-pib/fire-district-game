@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Manage Roads — Capps-Batavia</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f3f4f6; color: #111; }
+
+    header {
+      background: #1e3a5f;
+      color: #fff;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    header h1 { font-size: 1.05rem; font-weight: 600; flex: 1; }
+    header a { color: #93c5fd; font-size: 0.85rem; text-decoration: none; white-space: nowrap; }
+    header a:hover { text-decoration: underline; }
+
+    .legend {
+      display: flex;
+      gap: 14px;
+      padding: 10px 20px;
+      background: #fff;
+      border-bottom: 1px solid #e5e7eb;
+      flex-wrap: wrap;
+    }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: #444; }
+    .dot {
+      width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0;
+      border: 1px solid rgba(0,0,0,0.15);
+    }
+    .dot-us       { background: #4a9eff; }
+    .dot-state    { background: #55dd55; }
+    .dot-primary  { background: #ffd700; }
+    .dot-secondary{ background: #ccc; }
+    .dot-excluded { background: #ef4444; }
+
+    .controls {
+      padding: 12px 20px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      background: #fff;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    #search {
+      flex: 1;
+      min-width: 180px;
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      outline: none;
+    }
+    #search:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.2); }
+
+    .filter-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip {
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid #d1d5db;
+      background: #f9fafb;
+      font-size: 0.78rem;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    .chip.active { background: #1e3a5f; color: #fff; border-color: #1e3a5f; }
+    .chip:hover:not(.active) { background: #e5e7eb; }
+
+    #save-status {
+      font-size: 0.8rem;
+      padding: 0 20px;
+      height: 28px;
+      line-height: 28px;
+      color: #6b7280;
+      background: #fff;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    #save-status.saving { color: #f59e0b; }
+    #save-status.saved  { color: #10b981; }
+    #save-status.error  { color: #ef4444; }
+
+    .table-wrap {
+      overflow-x: auto;
+      height: calc(100vh - 180px);
+      overflow-y: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+    }
+    thead th {
+      position: sticky;
+      top: 0;
+      background: #1e3a5f;
+      color: #fff;
+      padding: 10px 14px;
+      text-align: left;
+      font-weight: 600;
+      white-space: nowrap;
+      z-index: 1;
+    }
+    tbody tr { background: #fff; border-bottom: 1px solid #f0f0f0; }
+    tbody tr:hover { background: #f9fafb; }
+    tbody tr.hidden-row { display: none; }
+
+    td { padding: 8px 14px; vertical-align: middle; }
+    td.name { font-weight: 500; }
+
+    .cat-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 0.78rem;
+      color: #555;
+    }
+
+    select.cat-select {
+      padding: 4px 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 5px;
+      font-size: 0.82rem;
+      background: #f9fafb;
+      cursor: pointer;
+      outline: none;
+    }
+    select.cat-select:focus { border-color: #3b82f6; }
+
+    .manual-badge {
+      font-size: 0.7rem;
+      background: #fef3c7;
+      color: #92400e;
+      border: 1px solid #fcd34d;
+      border-radius: 4px;
+      padding: 1px 5px;
+    }
+
+    button.reset-btn {
+      font-size: 0.72rem;
+      padding: 2px 7px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+      background: #f9fafb;
+      cursor: pointer;
+      color: #555;
+    }
+    button.reset-btn:hover { background: #fee2e2; border-color: #fca5a5; color: #b91c1c; }
+
+    #count-label { font-size: 0.8rem; color: #6b7280; margin-left: auto; white-space: nowrap; }
+
+    #loading-msg { padding: 40px; text-align: center; color: #6b7280; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Road Management — Capps-Batavia Fire District</h1>
+  <a href="/">← Back to game</a>
+</header>
+
+<div class="legend">
+  <div class="legend-item"><div class="dot dot-us"></div> US Highway</div>
+  <div class="legend-item"><div class="dot dot-state"></div> State Highway</div>
+  <div class="legend-item"><div class="dot dot-primary"></div> Primary County Road</div>
+  <div class="legend-item"><div class="dot dot-secondary"></div> Secondary Road</div>
+  <div class="legend-item"><div class="dot dot-excluded"></div> Excluded</div>
+</div>
+
+<div class="controls">
+  <input type="search" id="search" placeholder="Search roads…" autocomplete="off" />
+  <div class="filter-chips">
+    <button class="chip active" data-filter="all">All</button>
+    <button class="chip" data-filter="US Highway">US Highway</button>
+    <button class="chip" data-filter="State Highway">State Highway</button>
+    <button class="chip" data-filter="Primary County Road">Primary County Road</button>
+    <button class="chip" data-filter="Secondary Road">Secondary Road</button>
+    <button class="chip" data-filter="Excluded">Excluded</button>
+    <button class="chip" data-filter="manual">Manual overrides</button>
+  </div>
+  <span id="count-label"></span>
+</div>
+
+<div id="save-status"></div>
+
+<div id="loading-msg">Loading road data from server…</div>
+
+<div class="table-wrap" style="display:none">
+  <table>
+    <thead>
+      <tr>
+        <th>Road Name</th>
+        <th>pstr_type</th>
+        <th>Category</th>
+        <th>Source</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<script>
+  const CAT_DOT = {
+    'US Highway':          'dot-us',
+    'State Highway':       'dot-state',
+    'Primary County Road': 'dot-primary',
+    'Secondary Road':      'dot-secondary',
+    'Excluded':            'dot-excluded',
+  };
+  const CATEGORIES = ['US Highway', 'State Highway', 'Primary County Road', 'Secondary Road', 'Excluded'];
+
+  let allRoads = [];
+  let activeFilter = 'all';
+  let searchText = '';
+
+  const tbody = document.getElementById('tbody');
+  const searchEl = document.getElementById('search');
+  const countLabel = document.getElementById('count-label');
+  const saveStatus = document.getElementById('save-status');
+  const tableWrap = document.querySelector('.table-wrap');
+  const loadingMsg = document.getElementById('loading-msg');
+
+  // ── Data fetch ─────────────────────────────────────────────────────────
+  fetch('/api/road-categories')
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) throw new Error(data.error);
+      allRoads = data.roads;
+      loadingMsg.style.display = 'none';
+      tableWrap.style.display = '';
+      renderTable();
+    })
+    .catch(err => {
+      loadingMsg.textContent = `Error: ${err.message}`;
+    });
+
+  // ── Render ─────────────────────────────────────────────────────────────
+  function renderTable() {
+    const q = searchText.toLowerCase();
+    let visible = 0;
+
+    tbody.innerHTML = '';
+    for (const road of allRoads) {
+      const matchesSearch = road.name.toLowerCase().includes(q);
+      const matchesFilter =
+        activeFilter === 'all' ||
+        (activeFilter === 'manual' ? road.isManual : road.category === activeFilter);
+
+      const tr = document.createElement('tr');
+      if (!matchesSearch || !matchesFilter) {
+        tr.classList.add('hidden-row');
+      } else {
+        visible++;
+      }
+      tr.dataset.name = road.name;
+      tr.dataset.category = road.category;
+      tr.dataset.manual = road.isManual ? '1' : '0';
+
+      // Road name
+      const tdName = document.createElement('td');
+      tdName.className = 'name';
+      tdName.textContent = road.name;
+      tr.appendChild(tdName);
+
+      // pstr_type
+      const tdType = document.createElement('td');
+      tdType.textContent = road.pstrType ?? '—';
+      tdType.style.color = '#6b7280';
+      tr.appendChild(tdType);
+
+      // Category select
+      const tdCat = document.createElement('td');
+      const wrapper = document.createElement('div');
+      wrapper.className = 'cat-badge';
+      const dot = document.createElement('div');
+      dot.className = `dot ${CAT_DOT[road.category] ?? 'dot-secondary'}`;
+      const sel = document.createElement('select');
+      sel.className = 'cat-select';
+      for (const cat of CATEGORIES) {
+        const opt = document.createElement('option');
+        opt.value = cat;
+        opt.textContent = cat;
+        if (cat === road.category) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      sel.addEventListener('change', () => handleCategoryChange(road, sel, dot, sourceTd));
+      wrapper.appendChild(dot);
+      wrapper.appendChild(sel);
+      tdCat.appendChild(wrapper);
+      tr.appendChild(tdCat);
+
+      // Source (auto / manual + reset button)
+      const sourceTd = document.createElement('td');
+      renderSourceCell(sourceTd, road);
+      tr.appendChild(sourceTd);
+
+      tbody.appendChild(tr);
+    }
+
+    countLabel.textContent = `${visible} of ${allRoads.length} roads`;
+  }
+
+  function renderSourceCell(td, road) {
+    td.innerHTML = '';
+    if (road.isManual) {
+      const badge = document.createElement('span');
+      badge.className = 'manual-badge';
+      badge.textContent = 'manual';
+      const resetBtn = document.createElement('button');
+      resetBtn.className = 'reset-btn';
+      resetBtn.textContent = 'Reset to auto';
+      resetBtn.style.marginLeft = '6px';
+      resetBtn.addEventListener('click', () => handleReset(road, td));
+      td.appendChild(badge);
+      td.appendChild(resetBtn);
+    } else {
+      td.textContent = 'auto';
+      td.style.color = '#9ca3af';
+    }
+  }
+
+  // ── Category change ─────────────────────────────────────────────────────
+  let saveTimer = null;
+  function showStatus(msg, cls) {
+    saveStatus.textContent = msg;
+    saveStatus.className = cls;
+    clearTimeout(saveTimer);
+    if (cls === 'saved') saveTimer = setTimeout(() => { saveStatus.textContent = ''; saveStatus.className = ''; }, 2000);
+  }
+
+  async function handleCategoryChange(road, sel, dot, sourceTd) {
+    const newCat = sel.value;
+    showStatus('Saving…', 'saving');
+    try {
+      const r = await fetch('/api/road-categories', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: road.name, category: newCat }),
+      });
+      if (!r.ok) throw new Error('Server error');
+      road.category = newCat;
+      road.isManual = true;
+      dot.className = `dot ${CAT_DOT[newCat] ?? 'dot-secondary'}`;
+      renderSourceCell(sourceTd, road);
+      // Update row dataset for filter consistency
+      sel.closest('tr').dataset.category = newCat;
+      sel.closest('tr').dataset.manual = '1';
+      showStatus('Saved', 'saved');
+      applyFilters();
+    } catch (e) {
+      showStatus('Save failed', 'error');
+      sel.value = road.category; // revert
+    }
+  }
+
+  async function handleReset(road, sourceTd) {
+    showStatus('Saving…', 'saving');
+    try {
+      const r = await fetch(`/api/road-categories/${encodeURIComponent(road.name)}`, { method: 'DELETE' });
+      if (!r.ok) throw new Error('Server error');
+      road.category = road.autoCategory;
+      road.isManual = false;
+      // Update the select and dot in the same row
+      const tr = tbody.querySelector(`tr[data-name="${CSS.escape(road.name)}"]`);
+      if (tr) {
+        const sel = tr.querySelector('select.cat-select');
+        const dot = tr.querySelector('.dot');
+        if (sel) sel.value = road.autoCategory;
+        if (dot) dot.className = `dot ${CAT_DOT[road.autoCategory] ?? 'dot-secondary'}`;
+        tr.dataset.category = road.autoCategory;
+        tr.dataset.manual = '0';
+      }
+      renderSourceCell(sourceTd, road);
+      showStatus('Reset to auto', 'saved');
+      applyFilters();
+    } catch (e) {
+      showStatus('Reset failed', 'error');
+    }
+  }
+
+  // ── Filtering ───────────────────────────────────────────────────────────
+  function applyFilters() {
+    const q = searchText.toLowerCase();
+    let visible = 0;
+    for (const tr of tbody.querySelectorAll('tr')) {
+      const name = tr.dataset.name?.toLowerCase() ?? '';
+      const cat = tr.dataset.category ?? '';
+      const manual = tr.dataset.manual === '1';
+      const matchesSearch = name.includes(q);
+      const matchesFilter =
+        activeFilter === 'all' ||
+        (activeFilter === 'manual' ? manual : cat === activeFilter);
+      const hide = !matchesSearch || !matchesFilter;
+      tr.classList.toggle('hidden-row', hide);
+      if (!hide) visible++;
+    }
+    countLabel.textContent = `${visible} of ${allRoads.length} roads`;
+  }
+
+  searchEl.addEventListener('input', () => {
+    searchText = searchEl.value;
+    applyFilters();
+  });
+
+  document.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      activeFilter = chip.dataset.filter;
+      applyFilters();
+    });
+  });
+</script>
+
+</body>
+</html>

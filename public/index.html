@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Capps-Batavia Fire District Road Quiz</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div class="header-left">
+        <span class="badge">🚒 Capps-Batavia Fire District</span>
+        <a href="/manage-roads.html" class="manage-link">Manage Roads</a>
+      </div>
+      <div class="scoreboard">
+        <span id="score-display">Score: <strong id="score">0</strong></span>
+        <span id="streak-display">Streak: <strong id="streak">0</strong>🔥</span>
+        <span id="total-display">Q: <strong id="question-num">0</strong></span>
+      </div>
+    </header>
+
+    <div id="loading">
+      <div class="spinner"></div>
+      <p>Loading road data from Arkansas GIS…</p>
+    </div>
+
+    <div id="game" class="hidden">
+      <div id="map-container">
+        <div id="map"></div>
+        <div id="map-hint">Find the highlighted road</div>
+      </div>
+
+      <div id="quiz-panel">
+        <div id="question-text">What road is highlighted on the map?</div>
+
+        <div id="choices"></div>
+
+        <div id="feedback" class="hidden">
+          <span id="feedback-icon"></span>
+          <span id="feedback-text"></span>
+        </div>
+
+        <button id="next-btn" class="hidden">Next Road →</button>
+      </div>
+    </div>
+
+    <div id="error-msg" class="hidden">
+      <p>⚠️ Failed to load road data. Check the console for details.</p>
+      <button onclick="location.reload()">Retry</button>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
