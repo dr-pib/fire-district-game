@@ -211,6 +211,131 @@ app.delete('/api/road-categories/:name', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Communities / Subdivisions ─────────────────────────────────────────────
+const SUBS_URL = 'https://gis.arkansas.gov/arcgis/rest/services/FEATURESERVICES/Planning_Cadastre/FeatureServer/6/query';
+const COMMUNITIES_CACHE_FILE = path.join(DATA_DIR, 'communities-cache.json');
+const COMMUNITY_EXCLUSIONS_FILE = path.join(DATA_DIR, 'community-exclusions.json');
+
+function loadCommunityExclusions() {
+  try { return JSON.parse(fs.readFileSync(COMMUNITY_EXCLUSIONS_FILE, 'utf8')); }
+  catch { return []; }
+}
+function saveCommunityExclusions(list) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(COMMUNITY_EXCLUSIONS_FILE, JSON.stringify(list, null, 2));
+}
+let communityExclusions = loadCommunityExclusions();
+
+let communitiesCache = null;
+
+function loadCommunitiesFromDisk() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(COMMUNITIES_CACHE_FILE, 'utf8'));
+    if (Date.now() - raw.fetchedAt < ROADS_CACHE_MAX_AGE) return raw;
+  } catch {}
+  return null;
+}
+function saveCommunitiesToDisk(data) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(COMMUNITIES_CACHE_FILE, JSON.stringify(data));
+}
+
+async function fetchCommunitiesFromGIS() {
+  const boundary = await getBoundary();
+  const feature = boundary.features?.[0];
+  if (!feature) throw new Error('District boundary not found');
+
+  const geometryParam = JSON.stringify({
+    rings: feature.geometry.rings,
+    spatialReference: { wkid: 4326 },
+  });
+
+  const baseParams = {
+    where: "county='Boone' AND subdivision IS NOT NULL AND subdivision <> ''",
+    outFields: 'subdivision',
+    returnGeometry: 'true',
+    geometry: geometryParam,
+    geometryType: 'esriGeometryPolygon',
+    spatialRel: 'esriSpatialRelIntersects',
+    inSR: '4326',
+    outSR: '4326',
+    f: 'json',
+    resultRecordCount: 200,
+  };
+
+  const allFeatures = [];
+  let offset = 0;
+  let exceededTransferLimit = true;
+  while (exceededTransferLimit) {
+    const body = new URLSearchParams({ ...baseParams, resultOffset: offset });
+    const res = await fetch(SUBS_URL, { method: 'POST', body });
+    const data = await res.json();
+    const features = data.features || [];
+    allFeatures.push(...features);
+    exceededTransferLimit = data.exceededTransferLimit === true && features.length > 0;
+    offset += features.length;
+    if (features.length === 0) break;
+  }
+
+  const result = { features: allFeatures, fetchedAt: Date.now() };
+  console.log(`Fetched ${allFeatures.length} community features from GIS, saving to disk`);
+  saveCommunitiesToDisk(result);
+  return result;
+}
+
+async function getAllCommunities() {
+  if (communitiesCache) return communitiesCache;
+  const disk = loadCommunitiesFromDisk();
+  if (disk) {
+    console.log(`Loaded ${disk.features.length} community features from disk cache`);
+    communitiesCache = disk;
+    return communitiesCache;
+  }
+  communitiesCache = await fetchCommunitiesFromGIS();
+  return communitiesCache;
+}
+
+app.get('/api/communities', async (req, res) => {
+  try { res.json(await getAllCommunities()); }
+  catch (err) { console.error('Communities fetch error:', err); res.status(500).json({ error: err.message }); }
+});
+
+app.get('/api/communities-meta', async (req, res) => {
+  try {
+    const data = await getAllCommunities();
+    res.json({ fetchedAt: data.fetchedAt, count: data.features.length });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/refresh-communities', async (req, res) => {
+  try {
+    communitiesCache = null;
+    communitiesCache = await fetchCommunitiesFromGIS();
+    res.json({ ok: true, count: communitiesCache.features.length, fetchedAt: communitiesCache.fetchedAt });
+  } catch (err) {
+    console.error('Refresh communities error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/community-exclusions', (req, res) => {
+  res.json({ excluded: communityExclusions });
+});
+
+app.post('/api/community-exclusions', (req, res) => {
+  const { name, excluded } = req.body ?? {};
+  if (!name || typeof excluded !== 'boolean') {
+    return res.status(400).json({ error: 'Invalid request' });
+  }
+  if (excluded) {
+    if (!communityExclusions.includes(name)) communityExclusions.push(name);
+  } else {
+    communityExclusions = communityExclusions.filter(n => n !== name);
+  }
+  saveCommunityExclusions(communityExclusions);
+  res.json({ ok: true });
+});
+
 app.listen(PORT, () => {
   console.log(`Fire District Game running at http://localhost:${PORT}`);
 });

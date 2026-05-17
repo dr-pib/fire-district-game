@@ -41,6 +41,28 @@ header {
 }
 .manage-link:hover { background: #1e3a5f; }
 
+#mode-selector {
+  display: flex;
+  background: #0f172a;
+  border-bottom: 1px solid #1e293b;
+  flex-shrink: 0;
+}
+.mode-btn {
+  flex: 1;
+  padding: 9px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: #6b7280;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  letter-spacing: 0.02em;
+}
+.mode-btn.active { color: #f97316; border-bottom-color: #f97316; }
+.mode-btn:hover:not(.active) { color: #d1d5db; }
+
 .badge {
   font-weight: 700;
   font-size: 1rem;

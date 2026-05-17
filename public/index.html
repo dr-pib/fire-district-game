@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <title>Capps-Batavia Fire District Road Quiz</title>
+  <title>Capps-Batavia Fire District Quiz</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -11,8 +11,9 @@
   <div id="app">
     <header>
       <div class="header-left">
-        <span class="badge">🚒 Capps-Batavia Fire District</span>
+        <span class="badge">🚒 Capps-Batavia</span>
         <a href="/manage-roads.html" class="manage-link">Manage Roads</a>
+        <a href="/manage-communities.html" class="manage-link">Manage Communities</a>
       </div>
       <div class="scoreboard">
         <span id="score-display">Score: <strong id="score">0</strong></span>
@@ -21,9 +22,14 @@
       </div>
     </header>
 
+    <div id="mode-selector">
+      <button class="mode-btn active" data-mode="roads">Roads</button>
+      <button class="mode-btn" data-mode="communities">Communities</button>
+    </div>
+
     <div id="loading">
       <div class="spinner"></div>
-      <p>Loading road data from Arkansas GIS…</p>
+      <p>Loading data from Arkansas GIS…</p>
     </div>
 
     <div id="game" class="hidden">
@@ -47,7 +53,7 @@
     </div>
 
     <div id="error-msg" class="hidden">
-      <p>⚠️ Failed to load road data. Check the console for details.</p>
+      <p>⚠️ Failed to load data. Check the console for details.</p>
       <button onclick="location.reload()">Retry</button>
     </div>
   </div>

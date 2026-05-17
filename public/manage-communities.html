@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Manage Communities — Capps-Batavia</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f3f4f6; color: #111; }
+
+    header {
+      background: #1e3a5f;
+      color: #fff;
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    header h1 { font-size: 1.05rem; font-weight: 600; flex: 1; }
+    header a { color: #93c5fd; font-size: 0.85rem; text-decoration: none; white-space: nowrap; }
+    header a:hover { text-decoration: underline; }
+
+    .data-meta {
+      padding: 8px 20px;
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 0.8rem;
+      color: #6b7280;
+      flex-wrap: wrap;
+    }
+    button.refresh-btn {
+      padding: 5px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 5px;
+      background: #fff;
+      font-size: 0.8rem;
+      cursor: pointer;
+      color: #374151;
+    }
+    button.refresh-btn:hover { background: #e0f2fe; border-color: #38bdf8; color: #0369a1; }
+    button.refresh-btn:disabled { opacity: 0.5; cursor: default; }
+
+    .controls {
+      padding: 12px 20px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      background: #fff;
+      border-bottom: 1px solid #e5e7eb;
+      flex-wrap: wrap;
+    }
+    #search {
+      flex: 1;
+      min-width: 180px;
+      padding: 8px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      outline: none;
+    }
+    #search:focus { border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,0.2); }
+
+    .actions { display: flex; gap: 8px; }
+    button.action-btn {
+      padding: 7px 14px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      background: #f9fafb;
+      font-size: 0.82rem;
+      cursor: pointer;
+      color: #374151;
+    }
+    button.action-btn:hover { background: #e5e7eb; }
+
+    #save-status {
+      font-size: 0.8rem;
+      height: 26px;
+      line-height: 26px;
+      padding: 0 20px;
+      background: #fff;
+      border-bottom: 1px solid #f0f0f0;
+      color: #6b7280;
+    }
+    #save-status.saving { color: #f59e0b; }
+    #save-status.saved  { color: #10b981; }
+    #save-status.error  { color: #ef4444; }
+
+    #count-label { font-size: 0.8rem; color: #6b7280; margin-left: auto; }
+
+    .list-wrap {
+      max-width: 680px;
+      margin: 20px auto;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      overflow: hidden;
+    }
+
+    .community-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 11px 18px;
+      border-bottom: 1px solid #f0f0f0;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .community-row:last-child { border-bottom: none; }
+    .community-row:hover { background: #f9fafb; }
+    .community-row.excluded { opacity: 0.5; }
+
+    .community-row input[type="checkbox"] {
+      width: 17px; height: 17px;
+      accent-color: #1e3a5f;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .community-row label {
+      font-size: 0.95rem;
+      cursor: pointer;
+      flex: 1;
+    }
+
+    #loading-msg { padding: 40px; text-align: center; color: #6b7280; }
+    .hidden-row { display: none; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Manage Communities / Subdivisions — Capps-Batavia Fire District</h1>
+  <a href="/">← Back to game</a>
+</header>
+
+<div class="data-meta">
+  <span id="data-age">Loading…</span>
+  <button class="refresh-btn" id="refresh-btn" disabled>Refresh from GIS</button>
+</div>
+
+<div class="controls">
+  <input type="search" id="search" placeholder="Search communities…" autocomplete="off" />
+  <div class="actions">
+    <button class="action-btn" id="include-all-btn">Include all</button>
+    <button class="action-btn" id="exclude-all-btn">Exclude all</button>
+  </div>
+  <span id="count-label"></span>
+</div>
+
+<div id="save-status"></div>
+
+<div id="loading-msg">Loading community data…</div>
+<div class="list-wrap" id="list-wrap" style="display:none">
+  <div id="list"></div>
+</div>
+
+<script>
+  const listEl = document.getElementById('list');
+  const searchEl = document.getElementById('search');
+  const countLabel = document.getElementById('count-label');
+  const saveStatus = document.getElementById('save-status');
+  const dataAgeEl = document.getElementById('data-age');
+  const refreshBtn = document.getElementById('refresh-btn');
+  const listWrap = document.getElementById('list-wrap');
+  const loadingMsg = document.getElementById('loading-msg');
+
+  let allCommunities = []; // [{name, excluded}]
+  let excludedSet = new Set();
+  let saveTimer = null;
+
+  function formatAge(fetchedAt) {
+    if (!fetchedAt) return 'Unknown age';
+    const mins = Math.round((Date.now() - fetchedAt) / 60000);
+    if (mins < 2) return 'Community data: just fetched';
+    if (mins < 60) return `Community data: ${mins} minutes old`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return `Community data: ${hrs} hour${hrs !== 1 ? 's' : ''} old`;
+    const days = Math.round(hrs / 24);
+    return `Community data: ${days} day${days !== 1 ? 's' : ''} old`;
+  }
+
+  function showStatus(msg, cls) {
+    saveStatus.textContent = msg;
+    saveStatus.className = cls;
+    clearTimeout(saveTimer);
+    if (cls === 'saved') saveTimer = setTimeout(() => { saveStatus.textContent = ''; saveStatus.className = ''; }, 2000);
+  }
+
+  function updateCount() {
+    const rows = listEl.querySelectorAll('.community-row:not(.hidden-row)');
+    const excluded = [...rows].filter(r => r.dataset.excluded === '1').length;
+    countLabel.textContent = `${rows.length - excluded} included, ${excluded} excluded`;
+  }
+
+  async function setExclusion(name, excluded) {
+    showStatus('Saving…', 'saving');
+    try {
+      const r = await fetch('/api/community-exclusions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, excluded }),
+      });
+      if (!r.ok) throw new Error('Server error');
+      if (excluded) excludedSet.add(name); else excludedSet.delete(name);
+      showStatus('Saved', 'saved');
+    } catch (e) {
+      showStatus('Save failed', 'error');
+    }
+  }
+
+  function buildList(names) {
+    listEl.innerHTML = '';
+    for (const name of names) {
+      const isExcluded = excludedSet.has(name);
+      const id = `cb-${CSS.escape(name)}`;
+      const row = document.createElement('div');
+      row.className = `community-row${isExcluded ? ' excluded' : ''}`;
+      row.dataset.name = name.toLowerCase();
+      row.dataset.excluded = isExcluded ? '1' : '0';
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.id = id;
+      cb.checked = !isExcluded;
+      cb.addEventListener('change', async () => {
+        const nowExcluded = !cb.checked;
+        row.classList.toggle('excluded', nowExcluded);
+        row.dataset.excluded = nowExcluded ? '1' : '0';
+        await setExclusion(name, nowExcluded);
+        updateCount();
+      });
+
+      const label = document.createElement('label');
+      label.htmlFor = id;
+      label.textContent = name;
+
+      row.appendChild(cb);
+      row.appendChild(label);
+      row.addEventListener('click', e => {
+        if (e.target !== cb) { cb.checked = !cb.checked; cb.dispatchEvent(new Event('change')); }
+      });
+
+      listEl.appendChild(row);
+    }
+    updateCount();
+  }
+
+  // ── Load data ─────────────────────────────────────────────────────────────
+  Promise.all([
+    fetch('/api/communities').then(r => r.json()),
+    fetch('/api/community-exclusions').then(r => r.json()),
+    fetch('/api/communities-meta').then(r => r.json()),
+  ]).then(([commData, exclData, meta]) => {
+    excludedSet = new Set(exclData.excluded ?? []);
+
+    const names = [...new Set(
+      (commData.features ?? [])
+        .map(f => f.attributes?.subdivision?.trim())
+        .filter(Boolean)
+    )].sort();
+
+    allCommunities = names;
+    dataAgeEl.textContent = formatAge(meta.fetchedAt);
+    refreshBtn.disabled = false;
+    loadingMsg.style.display = 'none';
+    listWrap.style.display = '';
+    buildList(names);
+  }).catch(err => {
+    loadingMsg.textContent = `Error: ${err.message}`;
+  });
+
+  // ── Search ────────────────────────────────────────────────────────────────
+  searchEl.addEventListener('input', () => {
+    const q = searchEl.value.toLowerCase();
+    listEl.querySelectorAll('.community-row').forEach(row => {
+      row.classList.toggle('hidden-row', !row.dataset.name.includes(q));
+    });
+    updateCount();
+  });
+
+  // ── Bulk actions ──────────────────────────────────────────────────────────
+  document.getElementById('include-all-btn').addEventListener('click', async () => {
+    const visible = [...listEl.querySelectorAll('.community-row:not(.hidden-row)')];
+    for (const row of visible) {
+      const name = row.querySelector('label').textContent;
+      const cb = row.querySelector('input');
+      if (!cb.checked) { cb.checked = true; row.classList.remove('excluded'); row.dataset.excluded = '0'; await setExclusion(name, false); }
+    }
+    updateCount();
+  });
+
+  document.getElementById('exclude-all-btn').addEventListener('click', async () => {
+    const visible = [...listEl.querySelectorAll('.community-row:not(.hidden-row)')];
+    for (const row of visible) {
+      const name = row.querySelector('label').textContent;
+      const cb = row.querySelector('input');
+      if (cb.checked) { cb.checked = false; row.classList.add('excluded'); row.dataset.excluded = '1'; await setExclusion(name, true); }
+    }
+    updateCount();
+  });
+
+  // ── Refresh from GIS ──────────────────────────────────────────────────────
+  refreshBtn.addEventListener('click', async () => {
+    if (!confirm('Re-fetch community data from Arkansas GIS?')) return;
+    refreshBtn.disabled = true;
+    dataAgeEl.textContent = 'Fetching from Arkansas GIS…';
+    try {
+      const r = await fetch('/api/refresh-communities', { method: 'POST' });
+      const result = await r.json();
+      if (!r.ok) throw new Error(result.error);
+      dataAgeEl.textContent = formatAge(result.fetchedAt);
+      // Reload community list
+      const commData = await fetch('/api/communities').then(res => res.json());
+      const names = [...new Set(
+        (commData.features ?? []).map(f => f.attributes?.subdivision?.trim()).filter(Boolean)
+      )].sort();
+      allCommunities = names;
+      buildList(names);
+    } catch (e) {
+      dataAgeEl.textContent = `Refresh failed: ${e.message}`;
+    } finally {
+      refreshBtn.disabled = false;
+    }
+  });
+</script>
+
+</body>
+</html>
