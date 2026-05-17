@@ -234,13 +234,22 @@ header {
 .hidden { display: none !important; }
 
 @media (max-width: 640px) {
-  #game { flex-direction: column; }
+  #game { flex-direction: column; overflow: visible; }
   #quiz-panel {
     width: 100%;
     border-left: none;
     border-top: 1px solid #374151;
-    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+    /* leave room for the fixed next button at the bottom */
+    padding-bottom: calc(80px + env(safe-area-inset-bottom));
   }
   #map-container { height: 45vh; flex-shrink: 0; }
-  #next-btn { margin-top: 8px; }
+  #next-btn {
+    position: fixed;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    left: 12px;
+    right: 12px;
+    margin-top: 0;
+    z-index: 2000;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  }
 }
