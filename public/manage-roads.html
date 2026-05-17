@@ -158,6 +158,28 @@
 
     #count-label { font-size: 0.8rem; color: #6b7280; margin-left: auto; white-space: nowrap; }
 
+    .data-meta {
+      padding: 6px 20px;
+      background: #f9fafb;
+      border-bottom: 1px solid #e5e7eb;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 0.8rem;
+      color: #6b7280;
+    }
+    button.refresh-btn {
+      padding: 5px 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 5px;
+      background: #fff;
+      font-size: 0.8rem;
+      cursor: pointer;
+      color: #374151;
+    }
+    button.refresh-btn:hover { background: #e0f2fe; border-color: #38bdf8; color: #0369a1; }
+    button.refresh-btn:disabled { opacity: 0.5; cursor: default; }
+
     #loading-msg { padding: 40px; text-align: center; color: #6b7280; }
   </style>
 </head>
@@ -188,6 +210,11 @@
     <button class="chip" data-filter="manual">Manual overrides</button>
   </div>
   <span id="count-label"></span>
+</div>
+
+<div class="data-meta">
+  <span id="data-age">Loading road data…</span>
+  <button class="refresh-btn" id="refresh-btn" disabled>Refresh from GIS</button>
 </div>
 
 <div id="save-status"></div>
@@ -230,11 +257,28 @@
   const loadingMsg = document.getElementById('loading-msg');
 
   // ── Data fetch ─────────────────────────────────────────────────────────
-  fetch('/api/road-categories')
-    .then(r => r.json())
-    .then(data => {
-      if (data.error) throw new Error(data.error);
-      allRoads = data.roads;
+  const dataAgeEl = document.getElementById('data-age');
+  const refreshBtn = document.getElementById('refresh-btn');
+
+  function formatAge(fetchedAt) {
+    if (!fetchedAt) return 'Unknown age';
+    const mins = Math.round((Date.now() - fetchedAt) / 60000);
+    if (mins < 2) return 'Road data: just fetched';
+    if (mins < 60) return `Road data: ${mins} minutes old`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return `Road data: ${hrs} hour${hrs !== 1 ? 's' : ''} old`;
+    const days = Math.round(hrs / 24);
+    return `Road data: ${days} day${days !== 1 ? 's' : ''} old`;
+  }
+
+  Promise.all([
+    fetch('/api/road-categories').then(r => r.json()),
+    fetch('/api/roads-meta').then(r => r.json()),
+  ]).then(([catData, meta]) => {
+      if (catData.error) throw new Error(catData.error);
+      allRoads = catData.roads;
+      dataAgeEl.textContent = formatAge(meta.fetchedAt);
+      refreshBtn.disabled = false;
       loadingMsg.style.display = 'none';
       tableWrap.style.display = '';
       renderTable();
@@ -242,6 +286,26 @@
     .catch(err => {
       loadingMsg.textContent = `Error: ${err.message}`;
     });
+
+  refreshBtn.addEventListener('click', async () => {
+    if (!confirm('Re-fetch all road data from Arkansas GIS? This may take a few seconds.')) return;
+    refreshBtn.disabled = true;
+    dataAgeEl.textContent = 'Fetching from Arkansas GIS…';
+    try {
+      const r = await fetch('/api/refresh-roads', { method: 'POST' });
+      const result = await r.json();
+      if (!r.ok) throw new Error(result.error);
+      dataAgeEl.textContent = formatAge(result.fetchedAt);
+      // Reload road list since new roads may have appeared
+      const catData = await fetch('/api/road-categories').then(res => res.json());
+      allRoads = catData.roads;
+      renderTable();
+    } catch (e) {
+      dataAgeEl.textContent = `Refresh failed: ${e.message}`;
+    } finally {
+      refreshBtn.disabled = false;
+    }
+  });
 
   // ── Render ─────────────────────────────────────────────────────────────
   function renderTable() {

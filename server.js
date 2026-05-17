@@ -13,6 +13,8 @@ const ROADS_URL = `${GIS_BASE}/Transportation/FeatureServer/18/query`;
 // Falls back to the project root for local development.
 const DATA_DIR = process.env.DATA_DIR || __dirname;
 const CATEGORIES_FILE = path.join(DATA_DIR, 'road-categories.json');
+const ROADS_CACHE_FILE = path.join(DATA_DIR, 'roads-cache.json');
+const ROADS_CACHE_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 // ── Category persistence ───────────────────────────────────────────────────
 function loadManualCategories() {
@@ -63,11 +65,23 @@ app.get('/api/boundary', async (req, res) => {
   catch (err) { console.error('Boundary fetch error:', err); res.status(500).json({ error: err.message }); }
 });
 
-// ── All road centerlines within the district (cached for the session) ──────
-let roadsCache = null;
-async function getAllRoads() {
-  if (roadsCache) return roadsCache;
+// ── Road data: memory cache → disk cache (7 days) → GIS fetch ─────────────
+let roadsCache = null; // { features, fetchedAt }
 
+function loadRoadsFromDisk() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(ROADS_CACHE_FILE, 'utf8'));
+    if (Date.now() - raw.fetchedAt < ROADS_CACHE_MAX_AGE) return raw;
+  } catch {}
+  return null;
+}
+
+function saveRoadsToDisk(data) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(ROADS_CACHE_FILE, JSON.stringify(data));
+}
+
+async function fetchRoadsFromGIS() {
   const boundary = await getBoundary();
   const feature = boundary.features?.[0];
   if (!feature) throw new Error('District boundary not found');
@@ -105,14 +119,48 @@ async function getAllRoads() {
     if (features.length === 0) break;
   }
 
-  console.log(`Fetched ${allFeatures.length} road centerline segments from GIS`);
-  roadsCache = { features: allFeatures };
+  const result = { features: allFeatures, fetchedAt: Date.now() };
+  console.log(`Fetched ${allFeatures.length} road segments from GIS, saving to disk`);
+  saveRoadsToDisk(result);
+  return result;
+}
+
+async function getAllRoads() {
+  if (roadsCache) return roadsCache;
+  const disk = loadRoadsFromDisk();
+  if (disk) {
+    console.log(`Loaded ${disk.features.length} road segments from disk cache (age: ${Math.round((Date.now() - disk.fetchedAt) / 3600000)}h)`);
+    roadsCache = disk;
+    return roadsCache;
+  }
+  roadsCache = await fetchRoadsFromGIS();
   return roadsCache;
 }
 
 app.get('/api/roads', async (req, res) => {
   try { res.json(await getAllRoads()); }
   catch (err) { console.error('Roads fetch error:', err); res.status(500).json({ error: err.message }); }
+});
+
+// Force a fresh pull from GIS regardless of cache age
+app.post('/api/refresh-roads', async (req, res) => {
+  try {
+    roadsCache = null;
+    roadsCache = await fetchRoadsFromGIS();
+    res.json({ ok: true, count: roadsCache.features.length, fetchedAt: roadsCache.fetchedAt });
+  } catch (err) {
+    console.error('Refresh roads error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/roads-meta', async (req, res) => {
+  try {
+    const data = await getAllRoads();
+    res.json({ fetchedAt: data.fetchedAt, count: data.features.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Road category management ───────────────────────────────────────────────
