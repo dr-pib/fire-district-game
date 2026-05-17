@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Roads Reference Map — Capps-Batavia</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body { font-family: system-ui, sans-serif; display: flex; flex-direction: column; }
+
+    header {
+      background: #111827;
+      color: #e8eaf0;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      border-bottom: 2px solid #cc2200;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    header h1 { font-size: 1rem; font-weight: 700; color: #f97316; flex: 1; }
+    header a {
+      font-size: 0.8rem;
+      color: #93c5fd;
+      text-decoration: none;
+      border: 1px solid #3b5a7a;
+      border-radius: 5px;
+      padding: 3px 9px;
+    }
+    header a:hover { background: #1e3a5f; }
+
+    .legend {
+      background: #111827;
+      color: #e8eaf0;
+      padding: 6px 16px;
+      display: flex;
+      gap: 16px;
+      font-size: 0.75rem;
+      flex-shrink: 0;
+      border-bottom: 1px solid #374151;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .legend-item { display: flex; align-items: center; gap: 5px; }
+    .swatch { width: 24px; height: 4px; border-radius: 2px; }
+
+    #hint {
+      background: #1e3a5f;
+      color: #93c5fd;
+      text-align: center;
+      padding: 5px;
+      font-size: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    #map { flex: 1; }
+
+    #loading {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #1a1f2e;
+      color: #9ca3af;
+      font-size: 1rem;
+      z-index: 9999;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 4px solid #374151;
+      border-top-color: #f97316;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Road name labels */
+    .road-label {
+      background: none !important;
+      border: none !important;
+      box-shadow: none !important;
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+      text-shadow: 0 0 3px #000, 0 0 3px #000, 1px 1px 2px #000;
+      pointer-events: none;
+      line-height: 1;
+    }
+  </style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <span>Loading road data…</span>
+</div>
+
+<header>
+  <h1>Roads Reference Map — Capps-Batavia Fire District</h1>
+  <a href="/">← Game</a>
+  <a href="/manage-roads.html">Manage Roads</a>
+</header>
+
+<div class="legend">
+  <div class="legend-item"><div class="swatch" style="background:#4a9eff;height:5px"></div> US Highway</div>
+  <div class="legend-item"><div class="swatch" style="background:#55dd55;height:4px"></div> State Highway</div>
+  <div class="legend-item"><div class="swatch" style="background:#ffd700;height:3px"></div> Primary County Road</div>
+  <div class="legend-item"><div class="swatch" style="background:#fff;height:2px"></div> Secondary Road</div>
+  <span style="margin-left:auto;color:#6b7280">Zoom in to read labels</span>
+</div>
+
+<div id="hint">Labels visible at zoom 13+</div>
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const CATEGORY_COLOR = {
+  'US Highway':          '#4a9eff',
+  'State Highway':       '#55dd55',
+  'Primary County Road': '#ffd700',
+  'Secondary Road':      '#ffffff',
+};
+const CATEGORY_WEIGHT = {
+  'US Highway': 4, 'State Highway': 3.5, 'Primary County Road': 2.5, 'Secondary Road': 1.5,
+};
+const LABEL_ZOOM = 13;
+let labelMarkers = [];
+
+function roadColor(cat) { return CATEGORY_COLOR[cat] ?? '#fff'; }
+function roadWeight(cat) { return CATEGORY_WEIGHT[cat] ?? 1.5; }
+
+// Midpoint of the longest path segment — best spot for a label
+function bestLabelPoint(allPaths) {
+  const longest = allPaths.reduce((a, b) => b.length > a.length ? b : a, allPaths[0]);
+  return longest[Math.floor(longest.length / 2)];
+}
+
+async function init() {
+  const [boundaryData, roadsData, categoriesData] = await Promise.all([
+    fetch('/api/boundary').then(r => r.json()),
+    fetch('/api/roads').then(r => r.json()),
+    fetch('/api/road-categories').then(r => r.json()),
+  ]);
+
+  const categoryMap = {};
+  for (const r of categoriesData.roads ?? []) categoryMap[r.name] = r.category;
+
+  const map = L.map('map');
+
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: 'Imagery © Esri', maxZoom: 19,
+  }).addTo(map);
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
+    subdomains: 'abcd', maxZoom: 19, opacity: 0.45,
+  }).addTo(map);
+
+  // District boundary
+  const bf = boundaryData.features[0];
+  const geojson = {
+    type: 'Feature',
+    geometry: {
+      type: bf.geometry.rings.length > 1 ? 'MultiPolygon' : 'Polygon',
+      coordinates: bf.geometry.rings.length > 1
+        ? bf.geometry.rings.map(r => [r]) : bf.geometry.rings,
+    },
+  };
+  const districtLayer = L.geoJSON(geojson, {
+    style: { color: '#f97316', weight: 2.5, fillColor: '#f97316', fillOpacity: 0.06, dashArray: '6 4' },
+  }).addTo(map);
+  map.fitBounds(districtLayer.getBounds(), { padding: [20, 20] });
+
+  // Group features by name, build polylines + labels
+  const byName = {};
+  for (const f of roadsData.features) {
+    const name = f.attributes?.pstr_fulnam?.trim();
+    const paths = f.geometry?.paths;
+    if (!name || !paths?.length) continue;
+    const category = categoryMap[name] ?? 'Secondary Road';
+    if (category === 'Excluded') continue;
+    if (!byName[name]) byName[name] = { category, paths: [] };
+    for (const path of paths) {
+      byName[name].paths.push(path.map(([lon, lat]) => [lat, lon]));
+    }
+  }
+
+  // Draw roads and create labels
+  for (const [name, { category, paths }] of Object.entries(byName)) {
+    const color = roadColor(category);
+    const weight = roadWeight(category);
+    for (const path of paths) {
+      L.polyline(path, { color, weight, opacity: 0.9 }).addTo(map);
+    }
+
+    // Label at midpoint of longest segment
+    const pt = bestLabelPoint(paths);
+    const marker = L.marker(pt, {
+      icon: L.divIcon({ className: 'road-label', html: name, iconAnchor: [0, 0] }),
+      interactive: false,
+    });
+    labelMarkers.push(marker);
+  }
+
+  // Show/hide labels based on zoom
+  function updateLabels() {
+    const show = map.getZoom() >= LABEL_ZOOM;
+    for (const m of labelMarkers) {
+      if (show) m.addTo(map); else map.removeLayer(m);
+    }
+    document.getElementById('hint').textContent =
+      show ? `Showing labels (zoom ${map.getZoom()})` : `Zoom in to see labels (current: ${map.getZoom()}, need: ${LABEL_ZOOM}+)`;
+  }
+  map.on('zoomend', updateLabels);
+  updateLabels();
+
+  document.getElementById('loading').style.display = 'none';
+}
+
+init().catch(err => {
+  document.getElementById('loading').innerHTML = `<p style="color:#fca5a5">Failed to load: ${err.message}</p>`;
+});
+</script>
+</body>
+</html>
